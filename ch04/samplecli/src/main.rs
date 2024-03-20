@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     io::{stdin, BufRead, BufReader},
+    path::PathBuf,
 };
 
 use anyhow::{bail, ensure, Context, Result};
@@ -18,7 +19,7 @@ struct Opts {
     verbose: bool,
 
     #[arg(name = "FILE")]
-    formula_file: Option<String>,
+    formula_file: Option<PathBuf>,
 }
 
 struct RpnCalculator(bool);
@@ -64,7 +65,7 @@ impl RpnCalculator {
     }
 }
 
-fn main() -> Result<()>{
+fn main() -> Result<()> {
     let opts = Opts::parse();
     if let Some(path) = opts.formula_file {
         let f = File::open(path)?;
@@ -77,13 +78,13 @@ fn main() -> Result<()>{
     }
 }
 
-fn run<R: BufRead>(reader: R, verbose: bool)  -> Result<()> {
+fn run<R: BufRead>(reader: R, verbose: bool) -> Result<()> {
     let calc = RpnCalculator::new(verbose);
     for line in reader.lines() {
         let line = line?;
         match calc.eval(&line) {
             Ok(answer) => println!("{}", answer),
-            Err(e) => eprintln!("{:#?}", e)
+            Err(e) => eprintln!("{:#?}", e),
         }
     }
     Ok(())
