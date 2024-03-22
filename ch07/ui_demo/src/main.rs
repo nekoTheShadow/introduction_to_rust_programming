@@ -1,10 +1,21 @@
-use iced::{Application, Button, Column, Command, Font, Row, Settings, Text};
-use iced_native::{button, executor};
+use std::{
+    hash::Hash,
+    time::{Duration, Instant},
+};
+
+use iced::{
+    executor,
+    futures::{self},
+    Application, Button, Column, Command, Font, Row, Settings, Text,
+};
+use iced_native::button;
 
 struct GUI {
     start_stop_button_state: button::State,
     restart_button_state: button::State,
     tick_state: TickState,
+    last_update: Instant,
+    total_duration: Duration,
 }
 
 const FONT: Font = Font::External {
@@ -17,6 +28,7 @@ pub enum Message {
     Start,
     Stop,
     Reset,
+    Update,
 }
 
 #[derive(Debug, Clone)]
@@ -25,9 +37,8 @@ pub enum TickState {
     Ticking,
 }
 
-
 impl Application for GUI {
-    type Executor = executor::Null;
+    type Executor = executor::Default;
 
     type Message = Message;
 
@@ -39,6 +50,8 @@ impl Application for GUI {
                 tick_state: TickState::Stopped,
                 start_stop_button_state: button::State::new(),
                 restart_button_state: button::State::new(),
+                last_update: Instant::now(),
+                total_duration: Duration::default(),
             },
             Command::none(),
         )
@@ -54,32 +67,56 @@ impl Application for GUI {
         clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
         match message {
-            Message::Start => self.tick_state = TickState::Ticking,
-            Message::Stop => self.tick_state = TickState::Stopped,
-            Message::Reset => {}
+            Message::Start => {
+                self.tick_state = TickState::Ticking;
+                self.last_update = Instant::now();
+            }
+            Message::Stop => {
+                self.tick_state = TickState::Stopped;
+                self.total_duration += Instant::now() - self.last_update;
+            }
+            Message::Reset => {
+                self.last_update = Instant::now();
+                self.total_duration = Duration::default();
+            }
+            Message::Update => match self.tick_state {
+                TickState::Stopped => {}
+                TickState::Ticking => {
+                    let now_update = Instant::now();
+                    self.total_duration += now_update - self.last_update;
+                    self.last_update = now_update;
+                }
+            },
         }
         Command::none()
     }
 
     fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        let duration_text = "00:00:00.00";
+        let seconds = self.total_duration.as_secs();
+        let duration_text = format!(
+            "{:0>2}:{:0>2}:{:0>2}.{:0>2}",
+            seconds / HOUR,
+            (seconds % HOUR) / MINUTE,
+            (seconds % MINUTE),
+            self.total_duration.subsec_millis() / 10
+        );
         let start_stop_text = match self.tick_state {
-            TickState::Stopped => Text::new("Start").horizontal_alignment(iced::HorizontalAlignment::Center).font(FONT),
-            TickState::Ticking => Text::new("Stop").horizontal_alignment(iced::HorizontalAlignment::Center).font(FONT),
+            TickState::Stopped => Text::new("Start")
+                .horizontal_alignment(iced::HorizontalAlignment::Center)
+                .font(FONT),
+            TickState::Ticking => Text::new("Stop")
+                .horizontal_alignment(iced::HorizontalAlignment::Center)
+                .font(FONT),
         };
         let start_stop_message = match self.tick_state {
             TickState::Stopped => Message::Start,
-            TickState::Ticking => Message::Stop
+            TickState::Ticking => Message::Stop,
         };
         let tick_text = Text::new(duration_text).font(FONT).size(60);
-        
-        
-        let start_stop_button = Button::new(
-            &mut self.start_stop_button_state,
-            start_stop_text
-        )
-        .min_width(80)
-        .on_press(start_stop_message);
+
+        let start_stop_button = Button::new(&mut self.start_stop_button_state, start_stop_text)
+            .min_width(80)
+            .on_press(start_stop_message);
         let reset_button = Button::new(
             &mut self.restart_button_state,
             Text::new("Reset")
@@ -104,6 +141,11 @@ impl Application for GUI {
             .align_items(iced::Align::Center)
             .into()
     }
+
+    fn subscription(&self) -> iced::Subscription<Self::Message> {
+        let timer = Timer::new(Duration::from_millis(MILLISEC / FPS));
+        iced::Subscription::from_recipe(timer).map(|_| Message::Update)
+    }
 }
 
 fn main() {
@@ -111,3 +153,40 @@ fn main() {
     settings.window.size = (400u32, 120u32);
     GUI::run(settings);
 }
+
+pub struct Timer {
+    duration: Duration,
+}
+
+impl Timer {
+    fn new(duration: Duration) -> Timer {
+        Timer { duration }
+    }
+}
+
+impl<H, E> iced_native::subscription::Recipe<H, E> for Timer
+where
+    H: std::hash::Hasher,
+{
+    type Output = Instant;
+
+    fn hash(&self, state: &mut H) {
+        std::any::TypeId::of::<Self>().hash(state);
+        self.duration.hash(state);
+    }
+
+    fn stream(
+        self: Box<Self>,
+        input: iced_futures::BoxStream<E>,
+    ) -> futures::stream::BoxStream<'static, Self::Output> {
+        use futures::stream::StreamExt;
+        async_std::stream::interval(self.duration)
+            .map(|_| Instant::now())
+            .boxed()
+    }
+}
+
+const FPS: u64 = 30;
+const MILLISEC: u64 = 1000;
+const MINUTE: u64 = 60;
+const HOUR: u64 = 60 * MINUTE;
