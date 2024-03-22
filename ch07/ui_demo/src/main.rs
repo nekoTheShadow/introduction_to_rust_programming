@@ -4,6 +4,7 @@ use iced_native::{button, executor};
 struct GUI {
     start_stop_button_state: button::State,
     restart_button_state: button::State,
+    tick_state: TickState,
 }
 
 const FONT: Font = Font::External {
@@ -11,16 +12,31 @@ const FONT: Font = Font::External {
     bytes: include_bytes!("../rsc/PixelMplus12-Regular.ttf"),
 };
 
+#[derive(Debug, Clone)]
+pub enum Message {
+    Start,
+    Stop,
+    Reset,
+}
+
+#[derive(Debug, Clone)]
+pub enum TickState {
+    Stopped,
+    Ticking,
+}
+
+
 impl Application for GUI {
     type Executor = executor::Null;
 
-    type Message = ();
+    type Message = Message;
 
     type Flags = ();
 
     fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
         (
             GUI {
+                tick_state: TickState::Stopped,
                 start_stop_button_state: button::State::new(),
                 restart_button_state: button::State::new(),
             },
@@ -37,25 +53,42 @@ impl Application for GUI {
         message: Self::Message,
         clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
+        match message {
+            Message::Start => self.tick_state = TickState::Ticking,
+            Message::Stop => self.tick_state = TickState::Stopped,
+            Message::Reset => {}
+        }
         Command::none()
     }
 
     fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        let tick_text = Text::new("00:00:00.00").font(FONT).size(60);
+        let duration_text = "00:00:00.00";
+        let start_stop_text = match self.tick_state {
+            TickState::Stopped => Text::new("Start").horizontal_alignment(iced::HorizontalAlignment::Center).font(FONT),
+            TickState::Ticking => Text::new("Stop").horizontal_alignment(iced::HorizontalAlignment::Center).font(FONT),
+        };
+        let start_stop_message = match self.tick_state {
+            TickState::Stopped => Message::Start,
+            TickState::Ticking => Message::Stop
+        };
+        let tick_text = Text::new(duration_text).font(FONT).size(60);
+        
+        
         let start_stop_button = Button::new(
             &mut self.start_stop_button_state,
-            Text::new("Restart")
-                .horizontal_alignment(iced::HorizontalAlignment::Center)
-                .font(FONT),
+            start_stop_text
         )
-        .min_width(80);
+        .min_width(80)
+        .on_press(start_stop_message);
         let reset_button = Button::new(
             &mut self.restart_button_state,
             Text::new("Reset")
                 .horizontal_alignment(iced::HorizontalAlignment::Center)
                 .font(FONT),
         )
-        .min_width(80);
+        .min_width(80)
+        .on_press(Message::Reset);
+
         Column::new()
             .push(tick_text)
             .push(
